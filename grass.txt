@@ -1,153 +1,150 @@
-import requests
-import time
-import logging
-import telegram
-import random
-import base64
 import os
+import time
+import requests
 import json
 from cryptography.fernet import Fernet
-from requests.exceptions import RequestException
+from datetime import datetime
 
-# Generate encryption key (run once and store securely)
-ENCRYPTION_KEY = base64.urlsafe_b64encode(os.urandom(32))
-fernet = Fernet(ENCRYPTION_KEY)
-
-# Encrypt authentication tokens
-def encrypt_token(token):
-    return fernet.encrypt(token.encode()).decode()
-
-def decrypt_token(encrypted_token):
-    return fernet.decrypt(encrypted_token.encode()).decode()
-
-# Constants (Replace with your actual values)
-GRASS_API_URL = "https://api.getgrass.io"
-AUTH_TOKEN = encrypt_token("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkJseGtPeW9QaWIwMlNzUlpGeHBaN2JlSzJOSEJBMSJ9.eyJ1c2VySWQiOiIyZVpQU25qMHhrN2tkT2ZSMmgwQ2FCc1hIcE4iLCJlbWFpbCI6ImFuZHJlc2ZlbGlwZWppbWVuZXpydWVkYUBnbWFpbC5jb20iLCJzY29wZSI6IlVTRVIiLCJpYXQiOjE3NDIzNDMyNjcsIm5iZiI6MTc0MjM0MzI2NywiZXhwIjoxNzczNDQ3MjY3LCJhdWQiOiJ3eW5kLXVzZXJzIiwiaXNzIjoiaHR0cHM6Ly93eW5kLnMzLmFtYXpvbmF3cy5jb20vcHVibGljIn0.Aidx-c_W7vhE89LG091fx9RA0yrbIufpYxE5CoHsox3uytUc9pMDdfmvjS3NiuNw0avLV9S47Pbi_tlji9UGTxLskK9lyvWRC-LQ93UkovWssboQSgmYHmXFnfN0x8APvIGOsoNhvV7U8xvPdxZu4QmFEKc8nsO4UX9mvqCc4J6jKWz2f0Qx7hjrATtRlQYMH16agqZFsDt1lNmhn7n5WqIQjxBNmOWePKDLLZHuPxCK9Ep5TSdu92t0vn4Dpahpra0yBPN0ZuCn2jHpHIX-WKnVXhcP0N4TwtM_EzvrLqy5HneReSg4chzWhJ-wYh7J_7i1tDJg0Z2hMuMgPAlObQ")
-TELEGRAM_BOT_TOKEN = encrypt_token("YOUR_TELEGRAM_BOT_TOKEN")
+# Configuration
+AUTH_TOKEN = "YOUR_ENCRYPTED_AUTH_TOKEN"  # Encrypted token (see setup guide)
+PROXY = "http://<proxy_address>:<proxy_port>"  # Replace with your proxy
+TELEGRAM_BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
 TELEGRAM_CHAT_ID = "YOUR_TELEGRAM_CHAT_ID"
+ENCRYPTION_KEY = b"YOUR_ENCRYPTION_KEY"  # Generate using Fernet.generate_key()
 
-# Proxy settings
-PROXY_LIST = ["http://proxy1:port", "http://proxy2:port", "http://proxy3:port"]  # Add proxies here
-PUBLIC_PROXY = "http://publicproxy:port"
-
-# User agents rotation
+# User-Agent Rotation
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15",
+    "Mozilla/5.0 (Linux; Android 10; SM-A505FN) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36",
 ]
 
-# Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+# Encryption Setup
+cipher_suite = Fernet(ENCRYPTION_KEY)
 
-# Set up Telegram bot
-bot = telegram.Bot(token=decrypt_token(TELEGRAM_BOT_TOKEN))
+def encrypt_token(token):
+    """Encrypt the authentication token."""
+    return cipher_suite.encrypt(token.encode())
 
-def send_telegram_message(message):
-    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
+def decrypt_token(encrypted_token):
+    """Decrypt the authentication token."""
+    return cipher_suite.decrypt(encrypted_token).decode()
 
-def send_farming_progress(source, volume, duration, points):
-    message = f"Farming Update:\nSource: {source}\nVolume: {volume}\nDuration: {duration}s\nCurrent Points: {points}"
-    send_telegram_message(message)
-
+# Proxy Setup
 def get_proxy():
-    return random.choice(PROXY_LIST) if PROXY_LIST else PUBLIC_PROXY
-
-def make_request(method, url, **kwargs):
-    proxy = get_proxy()
-    headers = kwargs.get("headers", {})
-    headers["User-Agent"] = random.choice(USER_AGENTS)
-    kwargs["headers"] = headers
-    kwargs["proxies"] = {"http": proxy, "https": proxy}
+    """Return a proxy or fallback to a public proxy."""
     try:
-        response = requests.request(method, url, **kwargs)
-        response.raise_for_status()
-        return response
-    except RequestException as e:
-        logging.error(f"Request failed: {e}. Retrying with public proxy...")
-        kwargs["proxies"] = {"http": PUBLIC_PROXY, "https": PUBLIC_PROXY}
-        return requests.request(method, url, **kwargs)
+        requests.get("http://example.com", proxies={"http": PROXY, "https": PROXY}, timeout=5)
+        return PROXY
+    except:
+        return "http://<public_proxy_address>:<public_proxy_port>"  # Replace with a public proxy
 
-def sign_in():
-    headers = {"Authorization": f"Bearer {decrypt_token(AUTH_TOKEN)}"}
-    response = make_request("GET", f"{GRASS_API_URL}/user", headers=headers)
-    if response.status_code == 200:
-        logging.info("Successfully authenticated!")
-        send_telegram_message("Successfully authenticated with Grass API!")
-        return response.json()
-    else:
-        logging.error("Authentication failed!")
-        send_telegram_message("Authentication failed with Grass API!")
-        return None
+# Telegram Logger
+class TelegramLogger:
+    def __init__(self, bot_token, chat_id):
+        self.bot_token = bot_token
+        self.chat_id = chat_id
+        self.base_url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
 
-def check_balance():
-    headers = {"Authorization": f"Bearer {decrypt_token(AUTH_TOKEN)}"}
-    response = make_request("GET", f"{GRASS_API_URL}/balance", headers=headers)
-    if response.status_code == 200:
-        balance = response.json().get("balance", 0)
-        logging.info(f"Current balance: {balance}")
-        send_telegram_message(f"Current balance: {balance}")
-        return balance
-    else:
-        logging.error("Failed to fetch balance!")
-        send_telegram_message("Failed to fetch balance!")
-        return None
-
-def get_points():
-    headers = {"Authorization": f"Bearer {decrypt_token(AUTH_TOKEN)}"}
-    response = make_request("GET", f"{GRASS_API_URL}/user/points", headers=headers)
-    
-    if response.status_code == 200:
-        points = response.json().get("points", 0)
-        logging.info(f"Current points: {points}")
-        send_telegram_message(f"Current points: {points}")
-        return points
-    else:
-        logging.error(f"Failed to retrieve points! Status code: {response.status_code}")
-        send_telegram_message(f"Failed to retrieve points! Status code: {response.status_code}")
-        return None
-
-def farm_traffic(source, volume, duration):
-    headers = {"Authorization": f"Bearer {decrypt_token(AUTH_TOKEN)}", "Content-Type": "application/json"}
-    data = {
-        "source": source,
-        "volume": volume,
-        "duration": duration
-    }
-    response = make_request("POST", f"{GRASS_API_URL}/traffic/farm", json=data, headers=headers)
-    
-    if response.status_code == 200:
-        points = get_points()
-        logging.info(f"Successfully started farming: {data}")
-        send_farming_progress(source, volume, duration, points)
-        return response.json()
-    else:
-        logging.error(f"Farming request failed! Status code: {response.status_code}, Response: {response.text}")
-        send_telegram_message(f"Farming request failed! Status code: {response.status_code}, Response: {response.text}")
-        return None
-
-def auto_farm():
-    while True:
+    def log(self, message):
+        """Send a log message to the Telegram channel."""
+        payload = {
+            "chat_id": self.chat_id,
+            "text": message
+        }
         try:
-            logging.info("Starting automated farming cycle...")
-            send_telegram_message("Starting automated farming cycle...")
-            farm_traffic("organic", 100, 60)  # Example parameters
-            time.sleep(60)  # Adjust farming interval as needed
-        except Exception as e:
-            logging.error(f"Error occurred: {e}, restarting...")
-            send_telegram_message(f"Bot encountered an error and is restarting: {e}")
-            time.sleep(10)
-            auto_farm()
+            response = requests.post(self.base_url, json=payload)
+            response.raise_for_status()
+            print("Log sent to Telegram successfully!")
+        except requests.exceptions.RequestException as e:
+            print(f"Failed to send log to Telegram: {e}")
 
+# Grass API Client
+class GrassAPI:
+    def __init__(self, auth_token):
+        self.base_url = "https://api.getgrass.io"
+        self.auth_token = auth_token
+        self.headers = {
+            "Authorization": f"Bearer {self.auth_token}",
+            "Content-Type": "application/json",
+            "User-Agent": USER_AGENTS[0]  # Rotate user agents
+        }
+        self.proxy = get_proxy()
+        self.session = requests.Session()
+
+    def rotate_user_agent(self):
+        """Rotate the User-Agent header."""
+        self.headers["User-Agent"] = USER_AGENTS[(USER_AGENTS.index(self.headers["User-Agent"]) + 1) % len(USER_AGENTS)]
+
+    def get_balance(self):
+        """Retrieve the current points balance."""
+        endpoint = f"{self.base_url}/user/points"
+        try:
+            response = self.session.get(endpoint, headers=self.headers, proxies={"http": self.proxy, "https": self.proxy})
+            if response.status_code == 200:
+                return response.json().get("balance", 0)
+            elif response.status_code in [401, 403]:
+                print("Unauthorized or Forbidden. Check your auth token.")
+                return None
+            else:
+                print(f"Failed to fetch balance. Status code: {response.status_code}")
+                return None
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching balance: {e}")
+            return None
+
+    def farm_points(self, source, volume, duration):
+        """Farm points using the /traffic/farm endpoint."""
+        endpoint = f"{self.base_url}/traffic/farm"
+        payload = {
+            "source": source,
+            "volume": volume,
+            "duration": duration
+        }
+        try:
+            response = self.session.post(endpoint, json=payload, headers=self.headers, proxies={"http": self.proxy, "https": self.proxy})
+            if response.status_code == 200:
+                return response.json()
+            else:
+                print(f"Farming failed. Status code: {response.status_code}")
+                return None
+        except requests.exceptions.RequestException as e:
+            print(f"Error farming points: {e}")
+            return None
+
+# Main Bot
+class GrassBot:
+    def __init__(self):
+        self.auth_token = decrypt_token(AUTH_TOKEN)
+        self.grass_api = GrassAPI(self.auth_token)
+        self.telegram_logger = TelegramLogger(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
+
+    def run(self):
+        """Run the bot continuously for 24 hours with automatic restarts."""
+        start_time = time.time()
+        while time.time() - start_time < 86400:  # 24 hours
+            try:
+                # Check balance
+                balance = self.grass_api.get_balance()
+                if balance is not None:
+                    self.telegram_logger.log(f"Current balance: {balance} points")
+
+                # Farm points
+                farming_result = self.grass_api.farm_points(source="organic", volume=100, duration=60)
+                if farming_result:
+                    self.telegram_logger.log(f"Farming progress: {farming_result.get('progress', 0)}%")
+
+                # Rotate User-Agent
+                self.grass_api.rotate_user_agent()
+
+                # Wait before the next iteration
+                time.sleep(60)  # Adjust interval as needed
+
+            except Exception as e:
+                print(f"Error: {e}. Restarting bot...")
+                time.sleep(10)  # Wait before restarting
+
+# Entry Point
 if __name__ == "__main__":
-    while True:
-        try:
-            user_data = sign_in()
-            if user_data:
-                check_balance()
-                get_points()
-                auto_farm()
-        except Exception as e:
-            logging.error(f"Critical failure: {e}, restarting bot...")
-            send_telegram_message(f"Critical bot failure: {e}, restarting...")
-            time.sleep(10)
+    bot = GrassBot()
+    bot.run()
