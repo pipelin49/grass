@@ -1,0 +1,153 @@
+import requests
+import time
+import logging
+import telegram
+import random
+import base64
+import os
+import json
+from cryptography.fernet import Fernet
+from requests.exceptions import RequestException
+
+# Generate encryption key (run once and store securely)
+ENCRYPTION_KEY = base64.urlsafe_b64encode(os.urandom(32))
+fernet = Fernet(ENCRYPTION_KEY)
+
+# Encrypt authentication tokens
+def encrypt_token(token):
+    return fernet.encrypt(token.encode()).decode()
+
+def decrypt_token(encrypted_token):
+    return fernet.decrypt(encrypted_token.encode()).decode()
+
+# Constants (Replace with your actual values)
+GRASS_API_URL = "https://api.getgrass.io"
+AUTH_TOKEN = encrypt_token("YOUR_AUTH_TOKEN_HERE")
+TELEGRAM_BOT_TOKEN = encrypt_token("YOUR_TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = "YOUR_TELEGRAM_CHAT_ID"
+
+# Proxy settings
+PROXY_LIST = ["http://proxy1:port", "http://proxy2:port", "http://proxy3:port"]  # Add proxies here
+PUBLIC_PROXY = "http://publicproxy:port"
+
+# User agents rotation
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+]
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+
+# Set up Telegram bot
+bot = telegram.Bot(token=decrypt_token(TELEGRAM_BOT_TOKEN))
+
+def send_telegram_message(message):
+    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
+
+def send_farming_progress(source, volume, duration, points):
+    message = f"Farming Update:\nSource: {source}\nVolume: {volume}\nDuration: {duration}s\nCurrent Points: {points}"
+    send_telegram_message(message)
+
+def get_proxy():
+    return random.choice(PROXY_LIST) if PROXY_LIST else PUBLIC_PROXY
+
+def make_request(method, url, **kwargs):
+    proxy = get_proxy()
+    headers = kwargs.get("headers", {})
+    headers["User-Agent"] = random.choice(USER_AGENTS)
+    kwargs["headers"] = headers
+    kwargs["proxies"] = {"http": proxy, "https": proxy}
+    try:
+        response = requests.request(method, url, **kwargs)
+        response.raise_for_status()
+        return response
+    except RequestException as e:
+        logging.error(f"Request failed: {e}. Retrying with public proxy...")
+        kwargs["proxies"] = {"http": PUBLIC_PROXY, "https": PUBLIC_PROXY}
+        return requests.request(method, url, **kwargs)
+
+def sign_in():
+    headers = {"Authorization": f"Bearer {decrypt_token(AUTH_TOKEN)}"}
+    response = make_request("GET", f"{GRASS_API_URL}/user", headers=headers)
+    if response.status_code == 200:
+        logging.info("Successfully authenticated!")
+        send_telegram_message("Successfully authenticated with Grass API!")
+        return response.json()
+    else:
+        logging.error("Authentication failed!")
+        send_telegram_message("Authentication failed with Grass API!")
+        return None
+
+def check_balance():
+    headers = {"Authorization": f"Bearer {decrypt_token(AUTH_TOKEN)}"}
+    response = make_request("GET", f"{GRASS_API_URL}/balance", headers=headers)
+    if response.status_code == 200:
+        balance = response.json().get("balance", 0)
+        logging.info(f"Current balance: {balance}")
+        send_telegram_message(f"Current balance: {balance}")
+        return balance
+    else:
+        logging.error("Failed to fetch balance!")
+        send_telegram_message("Failed to fetch balance!")
+        return None
+
+def get_points():
+    headers = {"Authorization": f"Bearer {decrypt_token(AUTH_TOKEN)}"}
+    response = make_request("GET", f"{GRASS_API_URL}/user/points", headers=headers)
+    
+    if response.status_code == 200:
+        points = response.json().get("points", 0)
+        logging.info(f"Current points: {points}")
+        send_telegram_message(f"Current points: {points}")
+        return points
+    else:
+        logging.error(f"Failed to retrieve points! Status code: {response.status_code}")
+        send_telegram_message(f"Failed to retrieve points! Status code: {response.status_code}")
+        return None
+
+def farm_traffic(source, volume, duration):
+    headers = {"Authorization": f"Bearer {decrypt_token(AUTH_TOKEN)}", "Content-Type": "application/json"}
+    data = {
+        "source": source,
+        "volume": volume,
+        "duration": duration
+    }
+    response = make_request("POST", f"{GRASS_API_URL}/traffic/farm", json=data, headers=headers)
+    
+    if response.status_code == 200:
+        points = get_points()
+        logging.info(f"Successfully started farming: {data}")
+        send_farming_progress(source, volume, duration, points)
+        return response.json()
+    else:
+        logging.error(f"Farming request failed! Status code: {response.status_code}, Response: {response.text}")
+        send_telegram_message(f"Farming request failed! Status code: {response.status_code}, Response: {response.text}")
+        return None
+
+def auto_farm():
+    while True:
+        try:
+            logging.info("Starting automated farming cycle...")
+            send_telegram_message("Starting automated farming cycle...")
+            farm_traffic("organic", 100, 60)  # Example parameters
+            time.sleep(60)  # Adjust farming interval as needed
+        except Exception as e:
+            logging.error(f"Error occurred: {e}, restarting...")
+            send_telegram_message(f"Bot encountered an error and is restarting: {e}")
+            time.sleep(10)
+            auto_farm()
+
+if __name__ == "__main__":
+    while True:
+        try:
+            user_data = sign_in()
+            if user_data:
+                check_balance()
+                get_points()
+                auto_farm()
+        except Exception as e:
+            logging.error(f"Critical failure: {e}, restarting bot...")
+            send_telegram_message(f"Critical bot failure: {e}, restarting...")
+            time.sleep(10)
